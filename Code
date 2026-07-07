@@ -1,0 +1,106 @@
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <TinyGPS++.h>
+
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+String botToken = "YOUR_BOT_TOKEN";
+String chatID = "YOUR_CHAT_ID";
+
+#define BUTTON_PIN 13
+#define RXD2 16
+#define TXD2 17
+
+HardwareSerial gpsSerial(2);
+TinyGPSPlus gps;
+WiFiClientSecure client;
+
+bool sent = false;
+
+void connectWiFi()
+{
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+  }
+}
+
+void sendTelegram(String text)
+{
+  client.setInsecure();
+
+  if (!client.connect("api.telegram.org", 443))
+  {
+    return;
+  }
+
+  String url = "/bot" + botToken + "/sendMessage?chat_id=" + chatID + "&text=" + text;
+
+  client.print(String("GET ") + url + " HTTP/1.1\r\n");
+  client.print("Host: api.telegram.org\r\n");
+  client.print("Connection: close\r\n\r\n");
+
+  while (client.connected())
+  {
+    while (client.available())
+    {
+      client.read();
+    }
+  }
+
+  client.stop();
+}
+
+void setup()
+{
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  Serial.begin(115200);
+
+  gpsSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
+
+  connectWiFi();
+}
+
+void loop()
+{
+  while (gpsSerial.available())
+  {
+    gps.encode(gpsSerial.read());
+  }
+
+  if (digitalRead(BUTTON_PIN) == LOW)
+  {
+    if (!sent)
+    {
+      if (gps.location.isValid())
+      {
+        String lat = String(gps.location.lat(), 6);
+        String lng = String(gps.location.lng(), 6);
+
+        String msg = "🚨 EMERGENCY ALERT%0A";
+        msg += "Need Immediate Assistance.%0A";
+        msg += "Latitude: " + lat + "%0A";
+        msg += "Longitude: " + lng + "%0A";
+        msg += "https://maps.google.com/?q=" + lat + "," + lng;
+
+        sendTelegram(msg);
+      }
+      else
+      {
+        sendTelegram("🚨 EMERGENCY ALERT%0AGPS Location Not Available");
+      }
+
+      sent = true;
+    }
+  }
+  else
+  {
+    sent = false;
+  }
+
+  delay(100);
+}
